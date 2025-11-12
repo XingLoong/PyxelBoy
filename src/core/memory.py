@@ -1,6 +1,5 @@
 class Memory:
     def __init__(self):
-        self.data = [0] * 0x100000  # temp
         self.rom_bank0 = [0] * 0x4000   # 0x0000 - 0x3FFF: 16kb ROM bank 0
         self.rom_bank1 = [0] * 0x4000   # 0x4000 - 0x7FFF: 16kb ROM bank 1 (switchable via mapper)
         self.vram = [0] * 0x2000        # 0x8000 - 0x9FFF: 8kb VRAM
@@ -14,7 +13,7 @@ class Memory:
         self.hram = [0] * 0x7F          # 0xFF80 - 0xFFFE: HRAM
         self.interrupt_enable = 0       # 0xFFFF: IE Interrup Enable
 
-    def read(self, addr: int) -> int:
+    def __getitem__(self, addr):
         if 0x0000 <= addr <= 0x3FFF:
             return self.rom_bank0[addr]
         elif 0x4000 <= addr <= 0x7FFF:
@@ -37,8 +36,14 @@ class Memory:
             # Echo RAM and unused areas
             return 0
 
-    def write(self, addr: int, value: int):
-        if 0x8000 <= addr <= 0x9FFF:
+    def __setitem__(self, addr, value):
+        # Detect potential MBC writes (future) TODO
+        if 0x2000 <= addr <= 0x3FFF:
+        # This is where MBC1/2/3/5 handle ROM bank switching
+            self.rom_bank0[addr] = value
+        elif 0x4000 <= addr <= 0x7FFF:
+            self.rom_bank1[addr - 0x4000] = value
+        elif 0x8000 <= addr <= 0x9FFF:
             self.vram[addr - 0x8000] = value
         elif 0xA000 <= addr <= 0xBFFF:
             self.eram[addr - 0xA000] = value
@@ -54,7 +59,12 @@ class Memory:
             self.interrupt_enable = value
         # ROM is read-only, so writes are ignored
 
-    def load_rom(self, rom_data: bytes):
-        self.data[0:len(rom_data)] = rom_data
+    def load_rom(self, rom_data):
+        # load 32kb for now, figure rest later TODO banking
+        for i in range(min(len(rom_data), 0x4000)):
+            self.rom_bank0[i] = rom_data[i]
+        if len(rom_data) > 0x4000:
+            for i in range(min(len(rom_data) - 0x4000, 0x4000)):
+                self.rom_bank1[i] = rom_data[i + 0x4000]
 
     

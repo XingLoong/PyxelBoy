@@ -66,4 +66,25 @@ def _process_opcode(opcode: str, entry: dict, target: dict, is_prefixed: bool):
     target[opcode_int] = instr
 
 
-    
+if __name__ == "__main__":
+    from pprint import pprint
+
+    # Example test file path
+    opcode_path = Path("data/Opcodes.json")
+
+    # Load and test
+    prefixed, regular = load_opcodes(opcode_path)
+
+    print("\n=== Regular Opcodes (first 5) ===")
+    for opcode_int in sorted(regular.keys())[:5]:
+        instr = regular[opcode_int]
+        print(f"0x{opcode_int:02X}: {instr.mnemonic} (bytes={instr.bytes}, cycles={instr.cycles})")
+
+    print("\n=== Prefixed Opcodes (first 5) ===")
+    for opcode_int in sorted(prefixed.keys())[:5]:
+        instr = prefixed[opcode_int]
+        print(f"0xCB{opcode_int:02X}: {instr.mnemonic} (bytes={instr.bytes}, cycles={instr.cycles})")
+    pprint(regular[0x01])
+    pprint(regular[0x01].mnemonic)
+    pprint(regular[0x01].operands)
+    # pprint(dict(list(regular.items())[:5]))
