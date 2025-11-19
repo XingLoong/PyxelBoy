@@ -1,5 +1,11 @@
+from typing import Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from cpu import CPU
+
+
 class Memory:
     def __init__(self):
+        # =Registers=
         self.rom_bank0 = [0] * 0x4000   # 0x0000 - 0x3FFF: 16kb ROM bank 0
         self.rom_bank1 = [0] * 0x4000   # 0x4000 - 0x7FFF: 16kb ROM bank 1 (switchable via mapper)
         self.vram = [0] * 0x2000        # 0x8000 - 0x9FFF: 8kb VRAM
@@ -11,8 +17,24 @@ class Memory:
                                         # 0xFEA0 - 0xFEFF: forbidden
         self.io_regs = [0] * 0x80       # 0xFF00 - 0xFF7F: IO Registers
         self.hram = [0] * 0x7F          # 0xFF80 - 0xFFFE: HRAM
-        self.interrupt_enable = 0       # 0xFFFF: IE Interrup Enable
+        self.interrupt_enable = 0       # 0xFFFF: IE Interrupt Enable
+        self.interrupt_flag = 0         # 0xFF0F: IF
 
+        # =Timers=
+        self.DIV = 0
+        self.TIMA = 0
+        self.TMA = 0
+        self.TAC = 0
+        self.timer_periods = {
+            0: 1024,
+            1: 16,
+            2: 64,
+            3: 256,
+        }
+        self.div_counter = 0
+        self.tima_counter = 0
+
+        self.cpu: Optional["CPU"] = None
         # field to store serial data (FF01)
         self.serial_data = 0
         # blarrrg
@@ -38,14 +60,16 @@ class Memory:
         elif 0xFE00 <= addr <= 0xFE9F:
             return self.oam[addr - 0xFE00]
         elif 0xFF00 <= addr <= 0xFF7F:
-            if addr == 0xFF00:
-                return 0xFF
-            if addr == 0xFF41:
-                return 0x85
-            if addr == 0xFF44:
-                return 0x90
-            if addr == 0xFF4D:
-                return 0xFF
+            if addr == 0xFF00: return 0xFF     
+            elif addr == 0xFF04: return self.DIV   
+            elif addr == 0xFF05: return self.TIMA   
+            elif addr == 0xFF06: return self.TMA               
+            elif addr == 0xFF07: return self.TAC                
+            elif addr == 0xFF0F: return 0xE0 | (self.interrupt_flag & 0x1F)                
+            elif addr == 0xFF41: return 0x85                
+            elif addr == 0xFF44: return 0x90                
+            elif addr == 0xFF4D: return 0xFF               
+
             return self.io_regs[addr - 0xFF00]
         elif 0xFF80 <= addr <= 0xFFFE:
             return self.hram[addr - 0xFF80]
@@ -78,8 +102,6 @@ class Memory:
             self.oam[addr - 0xFE00] = value
         elif 0xFF00 <= addr <= 0xFF7F:
             self.io_regs[addr - 0xFF00] = value
-            print(f"[IO WRITE] {hex(addr)} <= {hex(value)}")
-            # TODO blarrgg test 'serial output'
             if addr == 0xFF01:
                 self.serial_data = value
             elif addr == 0xFF02:
@@ -89,11 +111,30 @@ class Memory:
                     print(char, end='', flush=True)      # or append to a test_output list
                     self.test_output.append(char)
                     self.serial_data = 0     # clear after printing
+            elif addr == 0xFF04:
+                self.DIV = 0
+                self.DIV_counter = 0
+                return
+            elif addr == 0xFF05:
+                self.TIMA = value
+                return
+            elif addr == 0xFF06:
+                self.TMA = value
+                return
+            elif addr == 0xFF07:
+                self.TAC = value & 0x07   # lower 3 bits used
+                return
+            elif addr == 0xFF0F:
+                self.interrupt_flag = value & 0x1F  # 0001 1111
+                # once cpu attached, wake from HALT
+                if self.cpu is not None:
+                    self.cpu.on_interrupt_flag_changed()
+                return
             return
         elif 0xFF80 <= addr <= 0xFFFE:
             self.hram[addr - 0xFF80] = value
         elif addr == 0xFFFF:
-            self.interrupt_enable = value
+            self.interrupt_enable = value 
         # ROM is read-only, so writes are ignored
 
     def load_rom(self, rom_data):
@@ -104,4 +145,23 @@ class Memory:
             for i in range(min(len(rom_data) - 0x4000, 0x4000)):
                 self.rom_bank1[i] = rom_data[i + 0x4000]
 
-    
+    def update_timers(self, cycles):
+        # DIV++ ever 256 cycles
+        self.div_counter = (self.div_counter + cycles) & 0xFFFF
+        while self.div_counter >= 256:
+            self.div_counter -= 256
+            self.DIV = (self.DIV + 1) & 0xFF
+        # timer enabled
+        if self.TAC & 0x04:
+            period = self.timer_periods[self.TAC & 0x03]
+            self.tima_counter += cycles
+
+            while self.tima_counter >= period:
+                self.tima_counter -= period
+
+                if self.TIMA == 0xFF:
+                    self.TIMA = self.TMA
+                    # interrupt
+                    self.interrupt_flag |= 0x04
+                else:
+                    self.TIMA = (self.TIMA + 1) & 0xFF

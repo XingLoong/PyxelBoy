@@ -6,8 +6,10 @@ class CPU:
     def __init__(self, prefixed, regular, memory):
         self.memory = memory
         self.halted = False
+        self.halt_bug = False
         self.stopped = False
-        self.interrupts = False
+        self.IME = 0
+        self.enable_IME_after = False
         self.cycles = 0
         # =Registers=
         """ A | F = AF 
@@ -539,9 +541,15 @@ class CPU:
         return 4
     
     def HALT(self):
-        self.halted = True
-        self.PC += 1
-        return 4
+        pending = self.memory.interrupt_flag & self.memory.interrupt_enable
+        if pending == 0:
+            # no pending interrupts -> enter true HALT: CPU stops until IF has a matching bit
+            self.halted = True
+        else:
+            # An interrupt is pending but IME == 0 -> HALT bug occurs:
+            # the next instruction fetch will not increment PC (i.e. same PC used twice).
+            self.halt_bug = True
+        return 4  
     
     def LD_nn_SP(self):
         # read immediate 16-bit address (little endian)
@@ -911,11 +919,11 @@ class CPU:
         return 8
 
     def DI(self):
-        self.interrupts = False
+        self.IME = 0
         return 4
     
-    def EI(self):       #TODO interrupts
-        self.interrupts = True
+    def EI(self):       
+        self.enable_IME_after = True
         return 4
 
     def ADD_SP_n(self):
@@ -1174,40 +1182,119 @@ class CPU:
             setattr(self, src, r_value | mask)
             return 8
 
+    def handle_interrupt(self):
+        IF = self.memory.interrupt_flag
+        IE = self.memory.interrupt_enable
+        pending = IF & IE
+
+        if pending == 0:
+            return False
+
+        # Find highest-priority interrupt (0-4): VBlank, LCD STAT, Timer, Serial, Joypad
+        vectors = [0x40, 0x48, 0x50, 0x58, 0x60]
+
+        for i in range(5):
+            if pending & (1 << i):
+
+                # Clear the IF bit
+                self.memory.interrupt_flag &= ~(1 << i)
+
+                # Disable IME
+                self.IME = 0
+
+                # Push PC on stack
+                self.SP -= 1
+                self.memory[self.SP] = (self.PC >> 8) & 0xFF
+                self.SP -= 1
+                self.memory[self.SP] = self.PC & 0xFF
+
+                # Jump to interrupt vector
+                
+                self.PC = vectors[i]
+
+                # Interrupts takes 20 cycles
+                self.cycles += 20
+                return True
+        
+        return False
+
+    def on_interrupt_flag_changed(self):
+        # Called when memory writes IF. *Important* to wake from HALT.
+        # If halted and matching interrupt becomes pending, un-halt.
+        pending = self.memory.interrupt_flag & self.memory.interrupt_enable
+        if self.halted and pending != 0:
+            # Wake from HALT — the HALT will end and next cycle proceeds normally.
+            self.halted = False
+
     # =CYCLE=
     def cycle(self):
-        # check for stop/halt
+        # =Halt/Stop=
+        IF = self.memory.interrupt_flag
+        IE = self.memory.interrupt_enable
+        pending = IF & IE
+
+        cycles_used = 0
+
+        # IME + pending interrupt:
+        if self.IME and pending:             
+            if self.handle_interrupt():
+                cycles_used = 20
+                self.memory.update_timers(cycles_used)
+                return
+        # in Halt and no pending interrupt:
         if self.halted:
-            self.cycles += 4
-            return
-        if self.stopped:
-            self.cycles += 4
-            return
+            if pending == 0:
+                # keep halted
+                self.cycles += 4
+                self.memory.update_timers(4)
+                return
+            else:
+                # wake from halt, and continue
+                self.halted = False
 
         # =Fetch=
-        self.opcode = self.memory[self.PC]  # instructions from gb rom        
-        self.PC += 1
+        # HALT-bug: suppress PC
+        if self.halt_bug:
+            self.opcode = self.memory[self.PC]
+            self.halt_bug = False
+            increment_pc = False
+        else:
+            self.opcode = self.memory[self.PC]
+            increment_pc = True
+
+        if increment_pc:
+            self.PC += 1
+
         # =Decode=
         if self.opcode == 0xCB:
-            #operands = self.prefixed[self.opcode].operands
-            # TODO: fix cycles
-            self.opcode = self.memory[self.PC]
+            pref = self.memory[self.PC]
             self.PC += 1
-            handler = self.prefixed_table.get(self.opcode)
+            handler = self.prefixed_table.get(pref)
         else:
             handler = self.opcode_table.get(self.opcode)
+
         # =Execute=
         s = self.registers[self.opcode & 0x07]
         d = self.registers[(self.opcode >> 3) & 0x07]
         i = None #immediate value TODO
 
         if handler:
-            # halt/stop
             cycles_used = handler()
             self.cycles += cycles_used
+            self.memory.update_timers(cycles_used)
+        else:
+            cycles_used = 4
+            self.cycles += cycles_used
+            self.memory.update_timers(cycles_used)
 
+
+        if self.enable_IME_after:
+            self.IME = 1
+            self.enable_IME_after = False
+
+
+
+        # update timers
         
-
-
 
     

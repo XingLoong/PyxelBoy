@@ -53,6 +53,7 @@ Some of the major challenges I faced while building the emulator:
 - The architecture of the original Gameboy.
 - Learning other ways instead of giant blocks of if/else statements, e.g. gettr and settr, lookup tables/dictionaries, and the trade-offs of overhead.
 - Flag logics.
+- Interrupt logics.
 
 ---
 
@@ -62,7 +63,7 @@ Some of the major challenges I faced while building the emulator:
 
 Head and heart ache during the test running of blarrg's test suite; challenging, but educational. Learned the necessary conditions to execute test ROMs, and the importance of adding debugging prints in the testing.
 Flag logic proved to be critical, challenging, and tricky to implement.
-The toughest hurdle was getting to the printout of failure/passed from the ROMS. After that, it was smooth sailing untili the next major update.
+The toughest hurdle was getting to the printout of failure/passed from the ROMS. After that, it was smooth sailing untili the next major update. The next hiccup was the interrupt, to pass cpu_instrs.02 in blarrg's tests.
 
 ---
 
