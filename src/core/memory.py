@@ -1,6 +1,7 @@
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from cpu import CPU
+    from ppu import PPU
 
 
 class Memory:
@@ -35,6 +36,7 @@ class Memory:
         self.tima_counter = 0
 
         self.cpu: Optional["CPU"] = None
+        self.ppu: Optional["PPU"] = None
         # field to store serial data (FF01)
         self.serial_data = 0
         # blarrrg
@@ -66,8 +68,20 @@ class Memory:
             elif addr == 0xFF06: return self.TMA               
             elif addr == 0xFF07: return self.TAC                
             elif addr == 0xFF0F: return 0xE0 | (self.interrupt_flag & 0x1F)                
-            elif addr == 0xFF41: return 0x85                
-            elif addr == 0xFF44: return 0x90                
+            elif 0xFF40 <= addr <= 0xFF4B and self.ppu is not None:
+                ppu = self.ppu
+                if addr == 0xFF40: return ppu.LCDC
+                elif addr == 0xFF41: return ppu.STAT
+                elif addr == 0xFF42: return ppu.SCY
+                elif addr == 0xFF43: return ppu.SCX
+                elif addr == 0xFF44: return ppu.LY
+                elif addr == 0xFF45: return ppu.LYC
+                elif addr == 0xFF46: return ppu.DMA
+                elif addr == 0xFF47: return ppu.BGP
+                elif addr == 0xFF48: return ppu.OBP0
+                elif addr == 0xFF49: return ppu.OBP1
+                elif addr == 0xFF4A: return ppu.WY
+                elif addr == 0xFF4B: return ppu.WX               
             elif addr == 0xFF4D: return 0xFF               
 
             return self.io_regs[addr - 0xFF00]
@@ -114,23 +128,43 @@ class Memory:
             elif addr == 0xFF04:
                 self.DIV = 0
                 self.DIV_counter = 0
-                return
-            elif addr == 0xFF05:
-                self.TIMA = value
-                return
-            elif addr == 0xFF06:
-                self.TMA = value
-                return
-            elif addr == 0xFF07:
-                self.TAC = value & 0x07   # lower 3 bits used
-                return
+            elif addr == 0xFF05: self.TIMA = value
+            elif addr == 0xFF06: self.TMA = value
+            elif addr == 0xFF07: self.TAC = value & 0x07   # lower 3 bits used
             elif addr == 0xFF0F:
                 self.interrupt_flag = value & 0x1F  # 0001 1111
                 # once cpu attached, wake from HALT
                 if self.cpu is not None:
                     self.cpu.on_interrupt_flag_changed()
-                return
-            return
+            elif 0xFF40 <= addr <= 0xFF4B and self.ppu is not None:
+                ppu = self.ppu
+                if addr == 0xFF40:  # LCDC
+                    ppu.LCDC = value
+                elif addr == 0xFF41:  # STAT
+                    # preserve bits 0,1,2:
+                    read_bits = self.ppu.STAT & 0x07
+                    write = value & 0xF8
+                    ppu.STAT = read_bits | write
+                elif addr == 0xFF42:  # SCY
+                    ppu.SCY = value
+                elif addr == 0xFF43:  # SCX
+                    ppu.SCX = value
+                elif addr == 0xFF44:  # LY — writing resets it to 0
+                    ppu.LY = 0
+                elif addr == 0xFF45:  # LYC
+                    ppu.LYC = value
+                elif addr == 0xFF46:  # DMA
+                    ppu.start_dma(value)
+                elif addr == 0xFF47:  # BGP
+                    ppu.BGP = value
+                elif addr == 0xFF48:  # OBP0
+                    ppu.OBP0 = value
+                elif addr == 0xFF49:  # OBP1
+                    ppu.OBP1 = value
+                elif addr == 0xFF4A:  # WY
+                    ppu.WY = value
+                elif addr == 0xFF4B:  # WX
+                    ppu.WX = value
         elif 0xFF80 <= addr <= 0xFFFE:
             self.hram[addr - 0xFF80] = value
         elif addr == 0xFFFF:

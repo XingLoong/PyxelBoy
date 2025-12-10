@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 class CPU:
-    def __init__(self, prefixed, regular, memory):
+    def __init__(self, memory):
         self.memory = memory
         self.halted = False
         self.halt_bug = False
@@ -40,8 +40,6 @@ class CPU:
         self.c = 0 # bit 4: carry flag
 
         # =Opcode tables=
-        self.regular = regular or {}
-        self.prefixed = prefixed or {}
         self.opcodes = 0
         # TODO cleanup dsi?
         self.opcode_table = { 
@@ -687,7 +685,7 @@ class CPU:
 
     def RETI(self):     #TODO interrupts
         result= self.RET()
-        self.interrupts = True
+        self.IME = 1
         return result
 
     def POP_rr(self, src):
@@ -1232,7 +1230,7 @@ class CPU:
         IF = self.memory.interrupt_flag
         IE = self.memory.interrupt_enable
         pending = IF & IE
-
+        ppu = getattr(self.memory, "ppu", None)
         cycles_used = 0
 
         # IME + pending interrupt:
@@ -1240,6 +1238,9 @@ class CPU:
             if self.handle_interrupt():
                 cycles_used = 20
                 self.memory.update_timers(cycles_used)
+                
+                if ppu is not None:
+                    ppu.step(cycles_used)
                 return
         # in Halt and no pending interrupt:
         if self.halted:
@@ -1247,6 +1248,9 @@ class CPU:
                 # keep halted
                 self.cycles += 4
                 self.memory.update_timers(4)
+
+                if ppu is not None:
+                    ppu.step(4)
                 return
             else:
                 # wake from halt, and continue
@@ -1263,12 +1267,12 @@ class CPU:
             increment_pc = True
 
         if increment_pc:
-            self.PC += 1
+            self.PC = (self.PC + 1) & 0xFFFF
 
         # =Decode=
         if self.opcode == 0xCB:
             pref = self.memory[self.PC]
-            self.PC += 1
+            self.PC = (self.PC + 1) & 0xFFFF
             handler = self.prefixed_table.get(pref)
         else:
             handler = self.opcode_table.get(self.opcode)
@@ -1280,13 +1284,16 @@ class CPU:
 
         if handler:
             cycles_used = handler()
-            self.cycles += cycles_used
-            self.memory.update_timers(cycles_used)
+            if cycles_used is None:
+                cycles_used = 4
         else:
             cycles_used = 4
-            self.cycles += cycles_used
-            self.memory.update_timers(cycles_used)
 
+        self.cycles += cycles_used
+        self.memory.update_timers(cycles_used)
+
+        if ppu is not None:
+            ppu.step(cycles_used)
 
         if self.enable_IME_after:
             self.IME = 1
@@ -1294,7 +1301,7 @@ class CPU:
 
 
 
-        # update timers
+        # ppu.step(cycles)
         
 
     
