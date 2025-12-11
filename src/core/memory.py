@@ -50,6 +50,8 @@ class Memory:
         elif 0x4000 <= addr <= 0x7FFF:
             return self.rom_bank1[addr - 0x4000]
         elif 0x8000 <= addr <= 0x9FFF:
+            # if self.ppu and self.ppu.mode == 3:
+            #     return 0xFF
             return self.vram[addr - 0x8000]
         elif 0xA000 <= addr <= 0xBFFF:
             return self.eram[addr - 0xA000]
@@ -60,6 +62,8 @@ class Memory:
         elif 0xFEA0 <= addr <= 0xFEFF:
             return 0
         elif 0xFE00 <= addr <= 0xFE9F:
+            # if self.ppu and self.ppu.mode in (2, 3):
+            #     return 0xFF
             return self.oam[addr - 0xFE00]
         elif 0xFF00 <= addr <= 0xFF7F:
             if addr == 0xFF00: return 0xFF     
@@ -105,6 +109,8 @@ class Memory:
         if 0x0000 <= addr <= 0x7FFF:
             return
         elif 0x8000 <= addr <= 0x9FFF:
+            # if self.ppu and self.ppu.mode == 3:
+            #     return
             self.vram[addr - 0x8000] = value
         elif 0xA000 <= addr <= 0xBFFF:
             self.eram[addr - 0xA000] = value
@@ -113,6 +119,8 @@ class Memory:
         elif 0xE000 <= addr <= 0xFDFF:
             self.wram[addr - 0xE000] = value
         elif 0xFE00 <= addr <= 0xFE9F:
+            # if self.ppu and self.ppu.mode in (2, 3):
+            #     return
             self.oam[addr - 0xFE00] = value
         elif 0xFF00 <= addr <= 0xFF7F:
             self.io_regs[addr - 0xFF00] = value
@@ -150,7 +158,7 @@ class Memory:
                 elif addr == 0xFF43:  # SCX
                     ppu.SCX = value
                 elif addr == 0xFF44:  # LY — writing resets it to 0
-                    ppu.LY = 0
+                    return
                 elif addr == 0xFF45:  # LYC
                     ppu.LYC = value
                 elif addr == 0xFF46:  # DMA

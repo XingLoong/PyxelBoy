@@ -34,7 +34,7 @@ class PyxelBoy:
             rom_data = f.read()
         self.memory.load_rom(rom_data)
 
-    def run(self, cycles_per_step=1000):
+    def run(self, cycles_per_step=1):
         while self.display.running_ok():
             for _ in range(cycles_per_step):
                 self.cpu.cycle()
