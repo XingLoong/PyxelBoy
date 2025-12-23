@@ -12,9 +12,14 @@ class Display:
             (self.width * self.scale, self.height * self.scale)
         )
         pygame.display.set_caption("PyxelBoy")
+        
+        pygame.event.set_allowed([pygame.QUIT, pygame.KEYDOWN, pygame.KEYUP])
+        pygame.key.set_repeat(0)
 
         self.surface = pygame.Surface((self.width, self.height))
         self.running = True
+
+        self.events = []
 
         # GB palette
         self.gb_palette = [
@@ -53,10 +58,14 @@ class Display:
         pygame.surfarray.blit_array(self.surface, rgb_blit)
 
     def _handle_events(self):
-        for event in pygame.event.get():
+        self.events = pygame.event.get()
+        for event in self.events:
             if event.type == pygame.QUIT:
                 self.running = False
 
     def running_ok(self):
         self._handle_events()
         return self.running
+    
+    def poll_events(self):
+        return self.events

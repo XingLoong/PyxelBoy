@@ -1,4 +1,4 @@
-from .instructions import Operand, Instruction
+from ..test.instructions import Operand, Instruction
 from pathlib import Path
 
 
@@ -1224,13 +1224,18 @@ class CPU:
             # Wake from HALT — the HALT will end and next cycle proceeds normally.
             self.halted = False
 
+    def _step_ppu_cycles(self, cycles):
+        # step PPU for cycles
+        ppu = getattr(self.memory, "ppu", None)
+        if ppu is not None:
+            ppu.step(cycles)
+
     # =CYCLE=
     def cycle(self):
         # =Halt/Stop=
         IF = self.memory.interrupt_flag
         IE = self.memory.interrupt_enable
         pending = IF & IE
-        ppu = getattr(self.memory, "ppu", None)
         cycles_used = 0
 
         # IME + pending interrupt:
@@ -1239,8 +1244,8 @@ class CPU:
                 cycles_used = 20
                 self.memory.update_timers(cycles_used)
                 
-                if ppu is not None:
-                    ppu.step(cycles_used)
+                for _ in range(cycles_used // 4):
+                    self._step_ppu_cycles(4)
                 return
         # in Halt and no pending interrupt:
         if self.halted:
@@ -1248,9 +1253,7 @@ class CPU:
                 # keep halted
                 self.cycles += 4
                 self.memory.update_timers(4)
-
-                if ppu is not None:
-                    ppu.step(4)
+                self._step_ppu_cycles(4)                
                 return
             else:
                 # wake from halt, and continue
@@ -1269,11 +1272,14 @@ class CPU:
         if increment_pc:
             self.PC = (self.PC + 1) & 0xFFFF
 
+        self._step_ppu_cycles(4)
+
         # =Decode=
         if self.opcode == 0xCB:
             pref = self.memory[self.PC]
             self.PC = (self.PC + 1) & 0xFFFF
             handler = self.prefixed_table.get(pref)
+            self._step_ppu_cycles(4)
         else:
             handler = self.opcode_table.get(self.opcode)
 
@@ -1284,24 +1290,28 @@ class CPU:
 
         if handler:
             cycles_used = handler()
-            if cycles_used is None:
-                cycles_used = 4
         else:
             cycles_used = 4
 
+        execution_cycles = cycles_used - 4
+        if self.opcode == 0xCB:
+            execution_cycles -= 4  # Already stepped for CB prefix
+        
         self.cycles += cycles_used
         self.memory.update_timers(cycles_used)
 
-        if ppu is not None:
-            ppu.step(cycles_used)
+        remaining = execution_cycles
+        while remaining >= 4:
+            self._step_ppu_cycles(4)
+            remaining -= 4
+        
+        # Handle any leftover cycles
+        if remaining > 0:
+            self._step_ppu_cycles(remaining)
 
         if self.enable_IME_after:
             self.IME = 1
             self.enable_IME_after = False
-
-
-
-        # ppu.step(cycles)
         
 
     

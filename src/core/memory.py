@@ -35,11 +35,25 @@ class Memory:
         self.div_counter = 0
         self.tima_counter = 0
 
+        # =Input=
+        self.joypad = 0xFF              # 11111111
+        self.joypad_state = {
+            "A": False,
+            "B": False,
+            "START": False,
+            "SELECT": False,
+            "UP": False,
+            "DOWN": False,
+            "LEFT": False,
+            "RIGHT": False,
+        }
+
+        # =Misc=
         self.cpu: Optional["CPU"] = None
         self.ppu: Optional["PPU"] = None
         # field to store serial data (FF01)
         self.serial_data = 0
-        # blarrrg
+        # blarrg
         self.test_output = []
 
     def __getitem__(self, addr):
@@ -66,7 +80,23 @@ class Memory:
             #     return 0xFF
             return self.oam[addr - 0xFE00]
         elif 0xFF00 <= addr <= 0xFF7F:
-            if addr == 0xFF00: return 0xFF     
+            if addr == 0xFF00: 
+                result = self.joypad | 0xC0
+                # directions:
+                if not (self.joypad & 0x10)     :
+                    if self.joypad_state["RIGHT"]: result &= ~0x01
+                    if self.joypad_state["LEFT"]: result &= ~0x02
+                    if self.joypad_state["UP"]: result &= ~0x04
+                    if self.joypad_state["DOWN"]: result &= ~0x08
+                
+                # action buttons:
+                if not (self.joypad & 0x20):
+                    if self.joypad_state["A"]: result &= ~0x01
+                    if self.joypad_state["B"]: result &= ~0x02
+                    if self.joypad_state["SELECT"]: result &= ~0x04
+                    if self.joypad_state["START"]: result &= ~0x08
+                
+                return result
             elif addr == 0xFF04: return self.DIV   
             elif addr == 0xFF05: return self.TIMA   
             elif addr == 0xFF06: return self.TMA               
@@ -124,7 +154,9 @@ class Memory:
             self.oam[addr - 0xFE00] = value
         elif 0xFF00 <= addr <= 0xFF7F:
             self.io_regs[addr - 0xFF00] = value
-            if addr == 0xFF01:
+            if addr == 0xFF00:
+                self.joypad = (self.joypad & 0xCF) | (value & 0x30)
+            elif addr == 0xFF01:
                 self.serial_data = value
             elif addr == 0xFF02:
                 if value == 0x81:
@@ -207,3 +239,19 @@ class Memory:
                     self.interrupt_flag |= 0x04
                 else:
                     self.TIMA = (self.TIMA + 1) & 0xFF
+
+    def update_joypad(self, state):
+        # check button state change
+        old_state = self.joypad_state
+        any_pressed = False
+
+        for key in state:
+            if state[key] and not old_state.get(key, False):
+                any_pressed = True
+                break
+        
+        self.joypad_state = state
+
+        # trigger joypad interrupt (bit 4)
+        if any_pressed:
+            self.interrupt_flag |= 0x10

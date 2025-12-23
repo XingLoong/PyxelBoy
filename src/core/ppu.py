@@ -45,6 +45,10 @@ class PPU:
         self.frame_buffer = [0] * (160 * 144)
         self.on_frame = handle_frame
 
+        self.coincidence_flag = False
+        self.last_rendered_line = -1
+        self.frame_id = 0
+
     """PPU.step(cycles):
     - Add cycles to mode counter
     - Check current scanline and mode
@@ -59,7 +63,7 @@ class PPU:
     def render_scanline(self):
         #TODO VRAM/OAM lock during mode 2/3
         LY = self.LY
-        LCDC = self.LCDC
+        LCDC = self.cached_LCDC
         BG_enable = LCDC & 0x01 != 0         # bit 0 (0: off)
         BG_map_select = LCDC & 0x08 != 0     # bit 3 (0: 0x9800-0x9BFF, 1: 0x9C00-0x9FFF)
         BG_tile_data = LCDC & 0x10 != 0      # bit 4 (0: 0x8800-0x9BFF signed, 1: 0x8000-0x8FFF unsigned)
@@ -82,8 +86,8 @@ class PPU:
             self._render_sprites_line(LY, OBJ_size)
     
     def _render_background_line(self, LY, BG_map_select, BG_tile_data, window_enable):
-        SCX = self.SCX
-        SCY = self.SCY
+        SCX = self.cached_SCX
+        SCY = self.cached_SCY
 
         # determin tile map 
         bg_tile_map_base = 0x9C00 if BG_map_select else 0x9800
@@ -134,7 +138,6 @@ class PPU:
     def _render_window_line(self, LY, window_map_select, BG_tile_data):
         WX = self.WX - 7   # Window X position on screen
         WY = self.WY       # Window Y position on screen
-        LY = self.LY
         BGP = self.BGP
 
         # draw if LY >= WY 
@@ -246,32 +249,19 @@ class PPU:
             self.LY = 0
             self.mode = 0
             self.dot = 0
-
-            try:
-                self.memory[0xFF44] = self.LY
-            except Exception:
-                pass
             return
-        
-        if not hasattr(self, "last_rendered_line"):
-            self.last_rendered_line = -1
-        if not hasattr(self, "last_vblank_frame_id"):
-            self.last_vblank_frame_id = -1
-        if not hasattr(self, "frame_id"):
-            self.frame_id = 0
 
         DRAW_END = self.MODE2_OAM + self.MODE3_DRAW
 
         for _ in range(cycles):
             prev_mode = self.mode
-            prev_coin = (self.STAT >> 2) & 0x01
-            
+            prev_coin = self.coincidence_flag
+
+            # advance dot
             self.dot += 1
 
-            # Handle DMA transfer (every 4 cycles)
-            if getattr(self, "dma_active", False):
-                if not hasattr(self, 'dma_cycles'):
-                    self.dma_cycles = 0
+            # DMA (every 4 cycles)
+            if self.dma_active:
                 self.dma_cycles += 1
                 if self.dma_cycles >= 4:
                     self.dma_cycles = 0
@@ -282,85 +272,80 @@ class PPU:
                         self.DMA_bytes_done += 1
                         if self.DMA_bytes_done >= 160:
                             self.dma_active = False
-            # render after mode 3
-            if (0 <= self.LY < 144) and (self.dot == DRAW_END):
-                if self.last_rendered_line != self.LY:
-                    # render the scanline we just finished drawing
-                    self.render_scanline()
-                    self.last_rendered_line = self.LY
 
-            # Line complete - advance to next line
+            # Determine current mode
+            if self.LY < 144:
+                if self.dot < self.MODE2_OAM:
+                    new_mode = 2  # OAM
+                elif self.dot < DRAW_END:
+                    new_mode = 3  # VRAM/pixel transfer
+                else:
+                    new_mode = 0  # HBlank
+
+                #TODO
+                if prev_mode == 2 and new_mode == 3:
+                    self.cached_LCDC = self.LCDC
+                    self.cached_SCX = self.SCX
+                    self.cached_SCY = self.SCY
+                    self.cached_BGP = self.BGP
+                    self.cached_WX = self.WX
+                    self.cached_WY = self.WY
+
+                # Render scanline on exiting Mode 3 -> 0
+                if prev_mode == 3 and new_mode == 0:
+                    if self.last_rendered_line != self.LY:
+                        self.render_scanline()
+                        self.last_rendered_line = self.LY
+            else:
+                new_mode = 1
+
+            # Update mode bits in STAT and fire mode-change STAT interrupts (only on transition)
+            if new_mode != prev_mode:
+                # write mode bits
+                self.mode = new_mode
+                self.STAT = (self.STAT & ~0x03) | self.mode
+
+                # Fire STAT interrupts only on transitions and only if the corresponding IE is set
+                if self.mode == 0 and (self.STAT & 0x08):   # HBlank IE (bit 3)
+                    self.memory.interrupt_flag |= 0x02
+                elif self.mode == 1 and (self.STAT & 0x10): # VBlank IE (bit 4)
+                    self.memory.interrupt_flag |= 0x02
+                elif self.mode == 2 and (self.STAT & 0x20): # OAM IE (bit 5)
+                    self.memory.interrupt_flag |= 0x02
+
+            # End of line: increment LY (may wrap)
             if self.dot >= self.LINE_CYCLES:
                 self.dot = 0
+                # Advance LY
                 self.LY += 1
 
-                # Entering VBlank (line 144)
+                # VBlank start
                 if self.LY == 144:
                     self.frame_id += 1
+                    # mode will be set later, but set to VBlank logically now
                     self.mode = 1
                     self.memory.interrupt_flag |= 0x01  # VBlank interrupt
+                    if self.on_frame:
+                        self.on_frame(self.frame_buffer)
 
-                    # call on_frame once per frame
-                    if self.on_frame and self.last_vblank_frame_id != self.frame_id:
-                        # update the display with the completed framebuffer
-                        try:
-                            self.on_frame(self.frame_buffer)
-                        except Exception:
-                            # don't let display errors break PPU timing
-                            pass
-                        self.last_vblank_frame_id = self.frame_id
-                
-                # End of frame (after line 153)
-                elif self.LY > 153:
+                # End of frame -> wrap LY and set initial mode (OAM)
+                if self.LY > 153:
                     self.LY = 0
                     self.mode = 2
                     self.last_rendered_line = -1
 
-            # Update mode based on dot position (for visible lines only)
-            if self.LY < 144:
+                # Recompute coincidence AFTER LY change (single place)
+                new_coin = (self.LY == self.LYC)
+                self.coincidence_flag = new_coin
                 
-                if self.dot < self.MODE2_OAM:
-                    # OAM scan (mode 2)
-                    new_mode = 2
-                elif self.dot < DRAW_END:
-                    # Drawing (mode 3)
-                    new_mode = 3
+                # Update STAT bit 2
+                if new_coin:
+                    self.STAT |= 0x04
                 else:
-                    # HBlank (mode 0)
-                    new_mode = 0
-                
-            else:
-                # VBlank (mode 1)
-                new_mode = 1
+                    self.STAT &= ~0x04
 
-            # Update STAT mode bits
-            self.mode = new_mode
-            self.STAT = (self.STAT & ~0x03) | (self.mode & 0x03)
 
-            # LYC coincidence check
-            coin = 1 if self.LY == self.LYC else 0
-            if coin:
-                self.STAT |= 0x04
-            else:
-                self.STAT &= ~0x04
-
-            # Fire STAT interrupts on mode transitions (edge-triggered)
-            if prev_mode != self.mode:
-                if self.mode == 0 and (self.STAT & 0x08):   # HBlank
-                    self.memory.interrupt_flag |= 0x02                
-                # Note: VBlank mode interrupt is separate from VBlank interrupt
-                elif self.mode == 1 and (self.STAT & 0x10):
+                # Fire LYC interrupt on rising edge only
+                if (not prev_coin) and new_coin and (self.STAT & 0x40):
                     self.memory.interrupt_flag |= 0x02
 
-                elif self.mode == 2 and (self.STAT & 0x20): # OAM
-                    self.memory.interrupt_flag |= 0x02
-
-            # LYC interrupt (rising edge only)
-            if (prev_coin == 0) and (coin == 1) and (self.STAT & 0x40):
-                self.memory.interrupt_flag |= 0x02
-
-                    # keep LY visible via memory if you rely on it elsewhere
-            try:
-                self.memory[0xFF44] = self.LY
-            except Exception:
-                pass
