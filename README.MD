@@ -19,9 +19,9 @@ An ambitious Gameboy emulator written in Python — my final project for **CS50x
 ## Features
 
 - [x] Loads Gameboy ROMs (.gb)
-- [ ] CPU emulation with opcode handling
-- [ ] Memory management
-- [ ] Basic graphics rendering
+- [x] CPU emulation with opcode handling
+- [x] Memory management
+- [x] Basic graphics rendering
 - [ ] Sound support (future work)
 - [ ] Save/load game states (future work)
 - [ ] TBD
@@ -38,9 +38,10 @@ TBD
 
 PyxelBoy is built entirely in Python, and is designed as a learning exercise for CS50x. The project covers:
 
-- Parsing Gameboy CPU instructions (opcodes) tbd
+- Parsing Gameboy CPU instructions
 - Memory
 - Graphics
+- Input
 
 ---
 
@@ -64,6 +65,14 @@ Some of the major challenges I faced while building the emulator:
 Head and heart ache during the test running of blarrg's test suite; challenging, but educational. Learned the necessary conditions to execute test ROMs, and the importance of adding debugging prints in the testing.
 Flag logic proved to be critical, challenging, and tricky to implement.
 The toughest hurdle was getting to the printout of failure/passed from the ROMS. After that, it was smooth sailing untili the next major update. The next hiccup was the interrupt, to pass cpu_instrs.02 in blarrg's tests.
+
+### PPU + Display
+
+Wrapping my head around the separate function of the PPU and how the actual architecture worked was difficult. While not 100% accurate to the actual hardware, the emulator works as intended.
+
+### Input
+
+Mapping key inputs was simplest in the scope of the project, seeing as Pygames handles that beautifully.
 
 ---
 
