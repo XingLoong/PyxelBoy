@@ -1,6 +1,6 @@
 # PyxelBoy
 
-#### Video Demo: --insert video here--
+#### Video Demo: https://youtu.be/ZwlM5Brchj4
 
 #### Description:
 
