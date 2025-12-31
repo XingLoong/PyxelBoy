@@ -88,6 +88,14 @@ e.g.
 python main.py /ROMs/Tetris.gb
 ```
 
+### Key Mapping
+
+- **WASD**: Up/Left/Down/Right
+- **F**: Select
+- **G**: Start
+- **H**: B Button
+- **J**: A Button
+
 ---
 
 ## File Overview
