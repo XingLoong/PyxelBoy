@@ -50,7 +50,7 @@ Upon 'completing' this project, I find myself thinking on how to improve and go 
 
 ## Usage
 
-1. Ensure Python **3.12 or newer** is installed:
+1. Ensure Python **3.11 or newer** is installed:
 
 ```bash
 python3 --version

@@ -1,4 +1,3 @@
-from ..test.instructions import Operand, Instruction
 from pathlib import Path
 
 
@@ -1230,6 +1229,12 @@ class CPU:
         if ppu is not None:
             ppu.step(cycles)
 
+    def _step_apu_cycles(self, cycles):
+        # step APU for cycles
+        apu = getattr(self.memory, "apu", None)
+        if apu is not None:
+            apu.step(cycles)
+
     # =CYCLE=
     def cycle(self):
         # =Halt/Stop=
@@ -1308,6 +1313,8 @@ class CPU:
         # Handle any leftover cycles
         if remaining > 0:
             self._step_ppu_cycles(remaining)
+        
+        self._step_apu_cycles(cycles_used)
 
         if self.enable_IME_after:
             self.IME = 1
