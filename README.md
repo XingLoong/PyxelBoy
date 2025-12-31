@@ -70,13 +70,19 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-4. Install dependencies:
+4. Upgrade package tools (recommended):
+
+```bash
+pip install --upgrade pip setuptools wheel
+```
+
+5. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-5. In the terminal run main with path to ROM (supply own 32kb size game):
+6. In the terminal run main with path to ROM (supply own 32kb size game):
 
 ```bash
 python main.py path/to/ROM.gb
